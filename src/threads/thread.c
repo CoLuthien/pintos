@@ -605,22 +605,17 @@ void thread_sleep(uint64_t ticks)
   ASSERT(!intr_context());
   
   cur->wake_at = ticks;
-
-  sema_down(&sema_sleep);
+  
   list_insert_ordered(&sleep_list, &cur->elem, time_compare, NULL); 
+  check_at = list_entry(list_front(&sleep_list), struct thread, elem) -> wake_at;
 
-  check_at = list_entry (list_front(&sleep_list), struct thread, elem) -> wake_at;
-  // min wake_at is guaranteed;
-  sema_up(&sema_sleep);
-
-/* need a test whether the intr_set_level called immediately or after some period.
-  */
   old_level = intr_disable ();
   thread_block ();
   intr_set_level (old_level);
 }
 void thread_wake()
 {
+  struct list_elem* e = NULL;
   int64_t cur_tick = timer_ticks();
   struct thread* t = NULL;
 
@@ -628,14 +623,24 @@ void thread_wake()
   {
     return;
   }
-  if(check_at > cur_tick)
+ 
+  if (check_at < cur_tick)
   {
-    return;
+    for (e = list_front (&sleep_list); e != list_back (&sleep_list); e = list_next (e))
+    {
+      t = list_entry (list_front(&sleep_list), struct thread, elem);
+      if (t->wake_at <= cur_tick)
+      {
+        list_remove (&t->elem);
+        t->wake_at = 0;
+        thread_unblock (t);
+      }
+      else
+      {
+        break;
+      }
+    }
   }
-
-  t = list_entry (list_front(&sleep_list), struct thread, elem);
-  list_remove(&t->elem);
-  thread_unblock(t);
 }
 
 bool time_compare(const struct list_elem* a, const struct list_elem* b)
