@@ -89,6 +89,9 @@ struct thread
     uint8_t *stack;                     /* Saved stack pointer. */
     int priority;                       /* Priority. */
     struct list_elem allelem;           /* List element for all threads list. */
+    /*sleep components*/
+    uint64_t wake_at;
+    /**/
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
@@ -137,5 +140,15 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+/* sleep*/
 
+void thread_sleep(uint64_t);
+void thread_wake();
+
+/*end define*/
+
+/**/
+bool time_compare(const struct list_elem*, const struct list_elem*);
+bool priority_compare(const struct list_elem, const struct list_elem);
+/**/
 #endif /* threads/thread.h */

@@ -11,6 +11,8 @@
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+#include "devices/timer.h"
+
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -59,6 +61,11 @@ static unsigned thread_ticks;   /* # of timer ticks since last yield. */
    Controlled by kernel command-line option "-o mlfqs". */
 bool thread_mlfqs;
 
+/*sleep*/
+static struct list sleep_list;
+static uint64_t check_at;
+static struct semaphore sema_sleep;
+
 static void kernel_thread (thread_func *, void *aux);
 
 static void idle (void *aux UNUSED);
@@ -92,6 +99,9 @@ thread_init (void)
   lock_init (&tid_lock);
   list_init (&ready_list);
   list_init (&all_list);
+
+  list_init (&sleep_list);
+  sema_init (&sema_sleep, 1);
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
@@ -468,6 +478,7 @@ init_thread (struct thread *t, const char *name, int priority)
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
+  t->wake_at = UINT64_MAX;
   t->magic = THREAD_MAGIC;
   list_push_back (&all_list, &t->allelem);
 }
@@ -582,6 +593,60 @@ allocate_tid (void)
   return tid;
 }
 
-/* Offset of `stack' member within `struct thread'.
+/* Offset of `stack' member within `struct thread'. 
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
+
+void thread_sleep(uint64_t ticks)
+{
+  enum intr_level old_level;
+  struct thread* cur = thread_current();
+
+  ASSERT(!intr_context());
+  
+  cur->wake_at = ticks;
+
+  sema_down(&sema_sleep);
+  list_insert_ordered(&sleep_list, &cur->elem, time_compare, NULL); 
+
+  check_at = list_entry (list_front(&sleep_list), struct thread, elem) -> wake_at;
+  // min wake_at is guaranteed;
+  sema_up(&sema_sleep);
+
+/* need a test whether the intr_set_level called immediately or after some period.
+  */
+  old_level = intr_disable ();
+  thread_block ();
+  intr_set_level (old_level);
+}
+void thread_wake()
+{
+  int64_t cur_tick = timer_ticks();
+  struct thread* t = NULL;
+
+  if (list_empty(&sleep_list))
+  {
+    return;
+  }
+  if(check_at > cur_tick)
+  {
+    return;
+  }
+
+  t = list_entry (list_front(&sleep_list), struct thread, elem);
+  list_remove(&t->elem);
+  thread_unblock(t);
+}
+
+bool time_compare(const struct list_elem* a, const struct list_elem* b)
+{
+  uint64_t i, j;
+
+  i = list_entry (a, struct thread, elem)->wake_at;
+
+  j = list_entry (b, struct thread, elem)->wake_at;
+
+  if ( i < j ) return true;
+  
+  return false;
+}
