@@ -144,11 +144,12 @@ int thread_get_load_avg (void);
 
 void thread_sleep(uint64_t);
 void thread_wake();
-
-/*end define*/
-
-/**/
 bool time_compare(const struct list_elem*, const struct list_elem*);
-bool priority_compare(const struct list_elem, const struct list_elem);
-/**/
+
+/*end sleep*/
+/*priority*/
+/*compare*/
+bool time_compare(const struct list_elem*, const struct list_elem*); // ascending
+bool priority_compare(const struct list_elem, const struct list_elem); // descending 
+/*end compare*/
 #endif /* threads/thread.h */
