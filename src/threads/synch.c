@@ -31,6 +31,8 @@
 #include <string.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
+void _priority_donate_lock (struct thread* holder, struct thread* waiter);
+void _priority_restore_lock(struct thread* recp, struct thread* doner);
 
 /* Initializes semaphore SEMA to VALUE.  A semaphore is a
    nonnegative integer along with two atomic operators for
@@ -68,7 +70,7 @@ sema_down (struct semaphore *sema)
   old_level = intr_disable ();
   while (sema->value == 0) 
     {
-      list_push_back (&sema->waiters, &thread_current ()->elem);
+      list_insert_ordered (&sema->waiters, &thread_current()->elem, (void*) priority_compare, NULL);
       thread_block ();
     }
   sema->value--;
@@ -178,6 +180,7 @@ lock_init (struct lock *lock)
   ASSERT (lock != NULL);
 
   lock->holder = NULL;
+  lock->inversion_counter = 0;
   sema_init (&lock->semaphore, 1);
 }
 
@@ -197,7 +200,9 @@ lock_acquire (struct lock *lock)
   ASSERT (!lock_held_by_current_thread (lock));
 
   sema_down (&lock->semaphore);
+  //call priority donate;
   lock->holder = thread_current ();
+  priority_donate_lock(lock);
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -213,10 +218,13 @@ lock_try_acquire (struct lock *lock)
 
   ASSERT (lock != NULL);
   ASSERT (!lock_held_by_current_thread (lock));
-
+  //call priority_donate
   success = sema_try_down (&lock->semaphore);
   if (success)
+  {
     lock->holder = thread_current ();
+    priority_donate_lock(lock);
+  }
   return success;
 }
 
@@ -230,10 +238,98 @@ lock_release (struct lock *lock)
 {
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
-
+  //call priority_restore;
+  priority_restore_lock(lock);
   lock->holder = NULL;
   sema_up (&lock->semaphore);
 }
+
+void
+priority_donate_lock(struct lock* target_lock)
+{
+  struct thread* doner = NULL;
+  struct thread* recp = NULL;
+  struct list* wait_list = &(target_lock->semaphore.waiters);
+  if (target_lock->holder == NULL)
+  {
+    return; // no holder. lock hadn't used
+  }
+
+  if(list_empty(wait_list))
+  {
+    return; // no waiters. no need to check
+  }
+
+  if(target_lock->inversion_counter >= 8)
+  {
+    return; // no more donation. already starved
+  }
+
+  doner = list_entry (list_front(wait_list), struct thread, elem);
+  recp = &target_lock->holder;
+  
+  _priority_donate_lock(recp, doner);
+  target_lock->inversion_counter++;
+}
+
+inline void
+_priority_donate_lock (struct thread* holder, struct thread* waiter)
+{
+  if (holder->priority >= waiter->priority)
+  {
+    return; // notthing to do
+  }
+  else    
+  {
+    int temp = holder->priority;
+    holder->priority = waiter->priority;
+    waiter->priority = temp; //swap them
+
+    holder->ret_thread = waiter;
+    waiter->ret_thread = holder;
+    thread_set_priority(holder->priority);
+  }
+}
+
+void
+priority_restore_lock(struct lock* target_lock)
+{
+  if(target_lock->inversion_counter == 0)
+  {
+    return; //no inversion had occured.
+  }
+  struct list* wait_list = &(target_lock->semaphore.waiters);
+
+  struct thread* recp = &target_lock->holder;// which is equivalent to call thread_current();
+  struct thread* doner = list_entry (list_front(wait_list), struct thread, elem);
+  ASSERT (recp->ret_thread == doner); // if it is not, something is wrong. ie) interrupt
+  _priority_restore_lock (recp, doner);
+
+  if (recp->ret_thread != NULL)
+  {
+    PANIC("lock restore");// restoration is not done.
+  }
+  target_lock->inversion_counter = 0;
+}
+
+void
+_priority_restore_lock(struct thread* recp, struct thread* doner)
+{
+  int temp = recp->priority;
+  recp->priority = doner->priority;
+  doner->priority = temp;
+
+  recp->ret_thread = doner->ret_thread;
+  doner->ret_thread = NULL;
+
+  if(recp->ret_thread == recp)
+  {
+    recp->ret_thread = NULL; // switched return thread is itself, no more doner. restore is end.
+    return;
+  }
+  return _priority_restore_lock(recp, recp->ret_thread);
+} 
+
 
 /* Returns true if the current thread holds LOCK, false
    otherwise.  (Note that testing whether some other thread holds

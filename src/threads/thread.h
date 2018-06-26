@@ -92,6 +92,7 @@ struct thread
     /*sleep components*/
     uint64_t wake_at;
     /**/
+    struct thread* ret_thread;
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
@@ -148,6 +149,7 @@ bool time_compare(const struct list_elem*, const struct list_elem*);
 
 /*end sleep*/
 /*priority*/
+
 /*compare*/
 bool time_compare(const struct list_elem*, const struct list_elem*); // ascending
 bool priority_compare(const struct list_elem, const struct list_elem); // descending 

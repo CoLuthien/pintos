@@ -65,6 +65,7 @@ bool thread_mlfqs;
 static struct list sleep_list;
 static uint64_t check_at;
 static struct lock sleep_lock;
+static struct lock pri_lock;
 
 static void kernel_thread (thread_func *, void *aux);
 
@@ -104,6 +105,7 @@ thread_init (void)
 
   list_init (&sleep_list);
   lock_init (&sleep_lock);
+  lock_init (&pri_lock);
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
@@ -360,14 +362,18 @@ thread_set_priority (int new_priority)
   //setting end
 
   //preemptive schedule start
+  enum intr_level old_level = intr_disable();
+
   struct list_elem* e = list_front(&ready_list);
   int i = list_entry(e, struct thread, elem)->priority;
   
-  if(i > new_priority)
-  {
+  if (i > new_priority)
+  { 
     list_insert_ordered (&ready_list, &t->elem, priority_compare, NULL);
     thread_preempt_block();
   }
+  intr_set_level (old_level);
+  //else just return to its own thread
 }
 
 /* Returns the current thread's priority. */
