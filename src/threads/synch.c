@@ -294,11 +294,11 @@ _priority_donate_lock (struct thread* holder, struct thread* waiter)
 void
 priority_restore_lock(struct lock* target_lock)
 {
-  if(target_lock->inversion_counter == 0)
-  {
-    return; //no inversion had occured.
-  }
   struct list* wait_list = &(target_lock->semaphore.waiters);
+  if (list_empty(wait_list))
+  {
+    return; // nothing to do. include NULL doner case
+  }
 
   struct thread* recp = &target_lock->holder;// which is equivalent to call thread_current();
   struct thread* doner = list_entry (list_front(wait_list), struct thread, elem);
@@ -309,7 +309,7 @@ priority_restore_lock(struct lock* target_lock)
   {
     PANIC("lock restore");// restoration is not done.
   }
-  target_lock->inversion_counter = 0;
+  target_lock->inversion_counter = 0; // restoration is done. set counter to 0
 }
 
 void
@@ -322,7 +322,7 @@ _priority_restore_lock(struct thread* recp, struct thread* doner)
   recp->ret_thread = doner->ret_thread;
   doner->ret_thread = NULL;
 
-  if(recp->ret_thread == recp)
+  if(recp->ret_thread == recp) // end pattern
   {
     recp->ret_thread = NULL; // switched return thread is itself, no more doner. restore is end.
     return;
