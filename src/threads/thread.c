@@ -79,6 +79,7 @@ static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 
+void thread_preempt_block(void);
 
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
@@ -221,6 +222,7 @@ thread_create (const char *name, int priority,
 
   /* Add to run queue. */
   thread_unblock (t);
+  thread_preempt_block();
 
   return tid;
 }
@@ -366,13 +368,8 @@ thread_set_priority (int new_priority)
   {
     return;
   }
-  struct list_elem* e = list_front(&ready_list);
-  int i = list_entry(e, struct thread, elem)->priority;
   
-  if (i > new_priority)
-  { 
-    thread_yield();
-  }
+  thread_preempt_block();
   //else just return to its own thread
 }
 
@@ -674,7 +671,22 @@ void thread_wake() //execute at intrrupt routine
   }
 }
 
-bool time_compare(const struct list_elem* a, const struct list_elem* b)
+void 
+thread_preempt_block()
+{
+  struct thread* cur = thread_current();
+  struct thread* t = list_entry (list_front(&ready_list), struct thread, elem);
+  printf("cur:%s, pri: %d\n", cur->name, cur->priority);
+  printf("t : %s, pri: %d\n", t->name, t->priority);
+  if (t->priority < cur->priority)
+  {
+    return; // do nothing created thread already inserted to the list.
+  }
+  thread_yield();
+}
+
+bool 
+time_compare(const struct list_elem* a, const struct list_elem* b)
 {
   uint64_t i, j;
 
