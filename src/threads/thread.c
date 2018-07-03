@@ -63,7 +63,7 @@ bool thread_mlfqs;
 
 /*sleep*/
 static struct list sleep_list;
-static uint64_t check_at;
+static int64_t check_at;
 static struct lock sleep_lock;
 
 static void kernel_thread (thread_func *, void *aux);
@@ -358,6 +358,10 @@ thread_set_priority (int new_priority)
   struct thread* t = thread_current ();
   t->priority = new_priority;
   //setting end
+  if(list_empty(&ready_list))
+  {
+    return;
+  }
 
   //preemptive schedule start
   struct list_elem* e = list_front(&ready_list);
@@ -365,7 +369,7 @@ thread_set_priority (int new_priority)
   
   if(i > new_priority)
   {
-    list_insert_ordered (&ready_list, &t->elem, priority_compare, NULL);
+    list_insert_ordered (&ready_list, &t->elem, (void*)priority_compare, NULL);
     thread_preempt_block();
   }
 }
@@ -492,7 +496,7 @@ init_thread (struct thread *t, const char *name, int priority)
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
-  t->wake_at = UINT64_MAX;
+  t->wake_at = 0;
   t->magic = THREAD_MAGIC;
   list_push_back (&all_list, &t->allelem);
 }
@@ -611,7 +615,7 @@ allocate_tid (void)
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
 
-void thread_sleep(uint64_t ticks)
+void thread_sleep(int64_t ticks)
 {
   enum intr_level old_level;
   struct thread* cur = thread_current();
@@ -630,7 +634,8 @@ void thread_sleep(uint64_t ticks)
   intr_set_level (old_level);
 }
 
-void thread_wake() //execute at intrrupt routine
+void
+thread_wake(void) //execute at intrrupt routine
 {
   struct list_elem* e = NULL;
   int64_t cur_tick = timer_ticks();
@@ -642,18 +647,18 @@ void thread_wake() //execute at intrrupt routine
     return;
   }
  
-  if (check_at < cur_tick)
+  if (check_at <= cur_tick)
   {
     old_level = intr_disable();
-    for (e = list_front (&sleep_list); e != list_end (&sleep_list); e = list_next (e))
+    for (e = list_front (&sleep_list); e != list_end (&sleep_list);)
     {
-      t = list_entry (list_front(&sleep_list), struct thread, elem);
+      t = list_entry (e, struct thread, elem);
+      e = list_next (e);
       if (t->wake_at <= cur_tick)
       {
         list_remove (&t->elem);
         t->wake_at = 0;
-        thread_unblock (t);
-        t = NULL;
+        thread_unblock (t);        
       }
       else
       {
@@ -688,7 +693,7 @@ bool time_compare(const struct list_elem* a, const struct list_elem* b)
   return false;
 }
 
-bool prirority_compare(const struct list_elem* a, const struct list_elem* b)
+bool priority_compare(const struct list_elem* a, const struct list_elem* b)
 {
   uint64_t i, j;
 

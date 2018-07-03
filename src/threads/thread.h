@@ -90,7 +90,7 @@ struct thread
     int priority;                       /* Priority. */
     struct list_elem allelem;           /* List element for all threads list. */
     /*sleep components*/
-    uint64_t wake_at;
+    int64_t wake_at;
     /**/
 
     /* Shared between thread.c and synch.c. */
@@ -142,14 +142,14 @@ int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 /* sleep*/
 
-void thread_sleep(uint64_t);
-void thread_wake();
+void thread_sleep(int64_t);
+void thread_wake(void);
 bool time_compare(const struct list_elem*, const struct list_elem*);
 
 /*end sleep*/
 /*priority*/
 /*compare*/
 bool time_compare(const struct list_elem*, const struct list_elem*); // ascending
-bool priority_compare(const struct list_elem, const struct list_elem); // descending 
+bool priority_compare(const struct list_elem*, const struct list_elem* ); // descending 
 /*end compare*/
 #endif /* threads/thread.h */

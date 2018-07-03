@@ -1,0 +1,10 @@
+{
+    "files.associations": {
+        "*.inc": "c",
+        "tests.h": "c",
+        "malloc.h": "c",
+        "init.h": "c",
+        "synch.h": "c",
+        "thread.h": "c"
+    }
+}
