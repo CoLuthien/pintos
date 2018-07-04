@@ -202,7 +202,6 @@ lock_acquire (struct lock *lock)
   sema_down (&lock->semaphore);
   //call priority donate;
   lock->holder = thread_current ();
-  priority_donate_lock(lock);
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -223,7 +222,6 @@ lock_try_acquire (struct lock *lock)
   if (success)
   {
     lock->holder = thread_current ();
-    priority_donate_lock(lock);
   }
   return success;
 }
@@ -239,7 +237,6 @@ lock_release (struct lock *lock)
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
   //call priority_restore;
-  priority_restore_lock(lock);
   lock->holder = NULL;
   sema_up (&lock->semaphore);
 }
@@ -344,4 +341,10 @@ cond_broadcast (struct condition *cond, struct lock *lock)
 
   while (!list_empty (&cond->waiters))
     cond_signal (cond, lock);
+}
+
+void
+priority_donate(struct lock* cur_lock)
+{
+  struct thread* holder = cur_lock->holder;
 }

@@ -676,8 +676,6 @@ thread_preempt_block()
 {
   struct thread* cur = thread_current();
   struct thread* t = list_entry (list_front(&ready_list), struct thread, elem);
-  printf("cur:%s, pri: %d\n", cur->name, cur->priority);
-  printf("t : %s, pri: %d\n", t->name, t->priority);
   if (t->priority < cur->priority)
   {
     return; // do nothing created thread already inserted to the list.
