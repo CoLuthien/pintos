@@ -79,7 +79,6 @@ static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 
-void thread_preempt_block(void);
 
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
@@ -314,6 +313,7 @@ thread_exit (void)
      when it calls thread_schedule_tail(). */
   intr_disable ();
   list_remove (&thread_current()->allelem);
+  list_remove (&thread_current()->elem);
   thread_current ()->status = THREAD_DYING;
   schedule ();
   NOT_REACHED ();
@@ -495,6 +495,7 @@ init_thread (struct thread *t, const char *name, int priority)
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
+  t->priority_prev = 0;
   t->wake_at = INT64_MAX;
   t->magic = THREAD_MAGIC;
   list_push_back (&all_list, &t->allelem);
@@ -674,6 +675,10 @@ void thread_wake() //execute at intrrupt routine
 void 
 thread_preempt_block()
 {
+  if(list_empty(&ready_list))
+  {
+    return;
+  }
   struct thread* cur = thread_current();
   struct thread* t = list_entry (list_front(&ready_list), struct thread, elem);
   if (t->priority < cur->priority)

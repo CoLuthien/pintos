@@ -88,6 +88,7 @@ struct thread
     char name[16];                      /* Name (for debugging purposes). */
     uint8_t *stack;                     /* Saved stack pointer. */
     int priority;                       /* Priority. */
+    int priority_prev;
     struct list_elem allelem;           /* List element for all threads list. */
     /*sleep components*/
     int64_t wake_at;
@@ -146,6 +147,7 @@ int thread_get_load_avg (void);
 void thread_sleep(int64_t);
 void thread_wake(void);
 bool time_compare(const struct list_elem*, const struct list_elem*);
+void thread_preempt_block(void);
 
 /*end sleep*/
 /*priority*/

@@ -31,8 +31,6 @@
 #include <string.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
-void _priority_donate_lock (struct thread* holder, struct thread* waiter);
-void _priority_restore_lock(struct thread* recp, struct thread* doner);
 
 /* Initializes semaphore SEMA to VALUE.  A semaphore is a
    nonnegative integer along with two atomic operators for
@@ -119,6 +117,7 @@ sema_up (struct semaphore *sema)
     thread_unblock (list_entry (list_pop_front (&sema->waiters),
                                 struct thread, elem));
   sema->value++;
+  thread_preempt_block();
   intr_set_level (old_level);
 }
 
@@ -180,7 +179,6 @@ lock_init (struct lock *lock)
   ASSERT (lock != NULL);
 
   lock->holder = NULL;
-  lock->inversion_counter = 0;
   sema_init (&lock->semaphore, 1);
 }
 
@@ -198,8 +196,9 @@ lock_acquire (struct lock *lock)
   ASSERT (lock != NULL);
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
-
+  priority_donate(lock); // if holder is null -> we will get a lock immediately
   sema_down (&lock->semaphore);
+  
   //call priority donate;
   lock->holder = thread_current ();
 }
@@ -221,6 +220,7 @@ lock_try_acquire (struct lock *lock)
   success = sema_try_down (&lock->semaphore);
   if (success)
   {
+    priority_donate(lock);
     lock->holder = thread_current ();
   }
   return success;
@@ -236,7 +236,9 @@ lock_release (struct lock *lock)
 {
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
-  //call priority_restore;
+    //call priority_restore;
+
+  priority_restore(lock);
   lock->holder = NULL;
   sema_up (&lock->semaphore);
 }
@@ -346,5 +348,33 @@ cond_broadcast (struct condition *cond, struct lock *lock)
 void
 priority_donate(struct lock* cur_lock)
 {
+  
+  int tmp = 0;
   struct thread* holder = cur_lock->holder;
+  struct thread* cur = thread_current();
+  ASSERT(cur != holder);
+  if (holder == NULL)
+  {
+    return;
+  }
+  ASSERT(holder != NULL);
+  if(cur->priority > holder->priority)
+  {
+    tmp = holder->priority;
+    holder->priority = cur->priority;
+    holder->priority_prev = (holder->priority_prev ? holder->priority_prev : tmp);
+  }
+
+}
+
+void 
+priority_restore(struct lock* cur_lock)
+{
+  struct thread* holder = cur_lock->holder;
+  ASSERT(holder != NULL);
+  if (holder->priority_prev != 0)
+  {
+    holder->priority = holder->priority_prev;
+    holder->priority_prev = 0;
+  }
 }

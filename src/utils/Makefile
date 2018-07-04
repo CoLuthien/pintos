@@ -8,4 +8,4 @@ squish-pty: squish-pty.o
 squish-unix: squish-unix.o
 
 clean: 
-	rm -f *.o setitimer-helper squish-pty squish-unix
+	rm -rf *.o setitimer-helper squish-pty squish-unix
