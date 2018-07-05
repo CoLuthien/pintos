@@ -313,7 +313,7 @@ thread_exit (void)
      when it calls thread_schedule_tail(). */
   intr_disable ();
   list_remove (&thread_current()->allelem);
-  list_remove (&thread_current()->elem);
+
   thread_current ()->status = THREAD_DYING;
   schedule ();
   NOT_REACHED ();
@@ -328,10 +328,11 @@ thread_yield (void)
   enum intr_level old_level;
   
   ASSERT (!intr_context ());
-
   old_level = intr_disable ();
   if (cur != idle_thread) 
+  {
     list_insert_ordered (&ready_list, &cur->elem, (void*)priority_compare, NULL);
+  }
 
   cur->status = THREAD_READY;
   schedule ();
@@ -496,6 +497,7 @@ init_thread (struct thread *t, const char *name, int priority)
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->priority_prev = 0;
+  t->lock_holder = NULL;
   t->wake_at = INT64_MAX;
   t->magic = THREAD_MAGIC;
   list_push_back (&all_list, &t->allelem);
@@ -595,6 +597,7 @@ schedule (void)
   if (cur != next)
     prev = switch_threads (cur, next);
   thread_schedule_tail (prev);
+  thread_wake();
 }
 
 /* Returns a tid to use for a new thread. */
@@ -675,23 +678,31 @@ void thread_wake() //execute at intrrupt routine
 void 
 thread_preempt_block()
 {
+  enum intr_level old_level;
+  old_level = intr_disable();
   if(list_empty(&ready_list))
   {
+    intr_set_level(old_level);
     return;
   }
   struct thread* cur = thread_current();
   struct thread* t = list_entry (list_front(&ready_list), struct thread, elem);
-  if (t->priority < cur->priority)
+  if (t == cur)
   {
-    return; // do nothing created thread already inserted to the list.
+    return;
   }
+  if (t->priority <= cur->priority)
+  {
+    return; // do nothing created thread already inserte to the list.
+  }
+  intr_set_level(old_level);
   thread_yield();
 }
 
 bool 
 time_compare(const struct list_elem* a, const struct list_elem* b)
 {
-  uint64_t i, j;
+  int64_t i, j;
 
   i = list_entry (a, struct thread, elem)->wake_at;
 
@@ -704,7 +715,7 @@ time_compare(const struct list_elem* a, const struct list_elem* b)
 
 bool priority_compare(const struct list_elem* a, const struct list_elem* b)
 {
-  uint64_t i, j;
+  int64_t i, j;
 
   i = list_entry (a, struct thread, elem)->priority;
 

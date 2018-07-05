@@ -117,7 +117,7 @@ sema_up (struct semaphore *sema)
     thread_unblock (list_entry (list_pop_front (&sema->waiters),
                                 struct thread, elem));
   sema->value++;
-  thread_preempt_block();
+  thread_preempt_block();  
   intr_set_level (old_level);
 }
 
@@ -241,6 +241,7 @@ lock_release (struct lock *lock)
   priority_restore(lock);
   lock->holder = NULL;
   sema_up (&lock->semaphore);
+  
 }
 
 /* Returns true if the current thread holds LOCK, false
@@ -348,24 +349,25 @@ cond_broadcast (struct condition *cond, struct lock *lock)
 void
 priority_donate(struct lock* cur_lock)
 {
-  
   int tmp = 0;
   struct thread* holder = cur_lock->holder;
   struct thread* cur = thread_current();
   ASSERT(cur != holder);
   if (holder == NULL)
   {
-    return;
+    cur->lock_holder = NULL;
+    return;//no need
   }
-  ASSERT(holder != NULL);
   if(cur->priority > holder->priority)
   {
     tmp = holder->priority;
     holder->priority = cur->priority;
-    holder->priority_prev = (holder->priority_prev ? holder->priority_prev : tmp);
+    holder->priority_prev = ( (holder->priority_prev == 0) ? tmp : holder->priority_prev );
+    cur->lock_holder = holder;
   }
-
 }
+
+
 
 void 
 priority_restore(struct lock* cur_lock)

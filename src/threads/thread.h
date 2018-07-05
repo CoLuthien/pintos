@@ -93,7 +93,7 @@ struct thread
     /*sleep components*/
     int64_t wake_at;
     /**/
-    struct thread* ret_thread;
+    struct thread* lock_holder;
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
