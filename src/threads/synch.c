@@ -196,7 +196,7 @@ lock_acquire (struct lock *lock)
   ASSERT (lock != NULL);
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
-  priority_donate(lock); // if holder is null -> we will get a lock immediately
+  priority_donate(lock->holder, thread_current()); // if holder is null -> we will get a lock immediately
   sema_down (&lock->semaphore);
   
   //call priority donate;
@@ -220,7 +220,7 @@ lock_try_acquire (struct lock *lock)
   success = sema_try_down (&lock->semaphore);
   if (success)
   {
-    priority_donate(lock);
+    priority_donate(lock->holder, thread_current());
     lock->holder = thread_current ();
   }
   return success;
@@ -346,37 +346,54 @@ cond_broadcast (struct condition *cond, struct lock *lock)
     cond_signal (cond, lock);
 }
 
-void
-priority_donate(struct lock* cur_lock)
+void 
+priority_donate(struct thread* holder_, struct thread* caller_)
 {
   int tmp = 0;
-  struct thread* holder = cur_lock->holder;
-  struct thread* cur = thread_current();
-  ASSERT(cur != holder);
+  struct thread* holder = holder_;
+  struct thread* caller = caller_;
+  ASSERT(holder != caller);
   if (holder == NULL)
   {
-    cur->lock_holder = NULL;
-    return;//no need
+    ASSERT(caller->lock_holder == NULL);
+    return;
   }
-  if(cur->priority > holder->priority)
+  
+  if (caller->priority > holder->priority)
   {
+    caller->lock_holder = holder;
     tmp = holder->priority;
-    holder->priority = cur->priority;
+    holder->priority = caller->priority;
     holder->priority_prev = ( (holder->priority_prev == 0) ? tmp : holder->priority_prev );
-    cur->lock_holder = holder;
+  }
+  if (holder->lock_holder != NULL)
+  {
+    return priority_donate(holder->lock_holder, holder); // 상향방식.
   }
 }
-
-
 
 void 
 priority_restore(struct lock* cur_lock)
 {
   struct thread* holder = cur_lock->holder;
-  ASSERT(holder != NULL);
-  if (holder->priority_prev != 0)
+  struct list* sema_list = &(cur_lock->semaphore).waiters;
+  struct list_elem* e;
+  struct thread* t = NULL;
+  ASSERT(holder->lock_holder == NULL);// assert current holder is first holder
+  if (list_empty(sema_list))
   {
-    holder->priority = holder->priority_prev;
-    holder->priority_prev = 0;
+    return;
   }
+  for (e = list_front(sema_list); e != list_end(sema_list);)
+  {
+    t = list_entry(e, struct thread, elem);
+    e = list_next(e);
+    if (t->lock_holder == holder)
+    {
+      t->lock_holder = NULL;
+    }
+  }
+  holder->priority = holder->priority_prev;
+  holder->priority_prev = 0;
+
 }
