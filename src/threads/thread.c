@@ -220,6 +220,7 @@ thread_create (const char *name, int priority,
 
   /* Add to run queue. */
   thread_unblock (t);
+  thread_preempt_block();
 
   return tid;
 }
@@ -257,7 +258,7 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  list_push_back (&ready_list, &t->elem);
+  list_insert_ordered (&ready_list, &t->elem, (void*)priority_compare, NULL);
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
@@ -328,7 +329,7 @@ thread_yield (void)
 
   old_level = intr_disable ();
   if (cur != idle_thread) 
-    list_push_back (&ready_list, &cur->elem);
+    list_insert_ordered (&ready_list, &cur->elem, (void*)priority_compare, NULL);
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
@@ -355,23 +356,14 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority) 
 {
-  struct thread* t = thread_current ();
-  t->priority = new_priority;
-  //setting end
+  struct thread* cur = thread_current ();
+  cur->priority = new_priority;//setting end
+  
   if(list_empty(&ready_list))
   {
-    return;
+    return; // you are the only one 
   }
-
-  //preemptive schedule start
-  struct list_elem* e = list_front(&ready_list);
-  int i = list_entry(e, struct thread, elem)->priority;
-  
-  if(i > new_priority)
-  {
-    list_insert_ordered (&ready_list, &t->elem, (void*)priority_compare, NULL);
-    thread_preempt_block();
-  }
+  thread_preempt_block();
 }
 
 /* Returns the current thread's priority. */
@@ -673,11 +665,27 @@ thread_wake(void) //execute at intrrupt routine
 void thread_preempt_block() //insert thread to some list before call
 {
   ASSERT(!intr_context());
-  ASSERT(intr_get_level() == INTR_OFF);
+  enum intr_level old_level = intr_disable();
 
-  struct thread* t = thread_current();
-  t->status = THREAD_READY;
+  struct thread* cur = thread_current();
+  struct thread* next = list_entry (list_front(&ready_list), struct thread, elem);
+  
+  ASSERT (next->status == THREAD_READY);
+  ASSERT (cur->status == THREAD_RUNNING);
+
+  if (cur->priority >= next->priority)
+  {
+    intr_set_level(old_level);
+    return;
+  }
+
+  if (cur != idle_thread)
+  {
+    list_insert_ordered(&ready_list, &cur->elem, (void*)priority_compare, NULL);
+  }
+  cur->status = THREAD_READY;
   schedule();
+  intr_set_level (old_level);
 }
 
 bool time_compare(const struct list_elem* a, const struct list_elem* b)
