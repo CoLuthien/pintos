@@ -1,0 +1,4 @@
+src/utils/squish-pty.o
+src/utils/squish-unix.o
+src/utils/setitimer-helper.o
+src/.vscode/settings.json
