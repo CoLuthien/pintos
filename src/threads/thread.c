@@ -78,7 +78,7 @@ static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 
-static void thread_preempt_block(void);
+
 
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
@@ -489,6 +489,8 @@ init_thread (struct thread *t, const char *name, int priority)
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->wake_at = 0;
+  t->base_priority = 0;
+  t->wait_lock = NULL;
   t->magic = THREAD_MAGIC;
   list_push_back (&all_list, &t->allelem);
 }
@@ -662,17 +664,21 @@ thread_wake(void) //execute at intrrupt routine
   }
 }
 
-void thread_preempt_block() //insert thread to some list before call
+void 
+thread_preempt_block() //insert thread to some list before call
 {
   ASSERT(!intr_context());
   enum intr_level old_level = intr_disable();
-
+  if (list_empty(&ready_list))
+  {
+    return;
+  }
   struct thread* cur = thread_current();
   struct thread* next = list_entry (list_front(&ready_list), struct thread, elem);
   
   ASSERT (next->status == THREAD_READY);
   ASSERT (cur->status == THREAD_RUNNING);
-
+  ASSERT (cur != next);
   if (cur->priority >= next->priority)
   {
     intr_set_level(old_level);

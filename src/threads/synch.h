@@ -22,6 +22,7 @@ struct lock
   {
     struct thread *holder;      /* Thread holding lock (for debugging). */
     struct semaphore semaphore; /* Binary semaphore controlling access. */
+    struct list donation_list;
   };
 
 void lock_init (struct lock *);
@@ -42,8 +43,8 @@ void cond_signal (struct condition *, struct lock *);
 void cond_broadcast (struct condition *, struct lock *);
 
 
-void priority_donate(struct semaphore*);
-void priority_restore(struct semaphore*);
+void priority_donate(struct lock*, struct thread*); 
+void priority_restore(struct lock*);
 /* Optimization barrier.
 
    The compiler will not reorder operations across an
