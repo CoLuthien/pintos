@@ -488,6 +488,7 @@ init_thread (struct thread *t, const char *name, int priority)
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
+  t->priority_prev = -1;
   t->wake_at = 0;
   
   t->wait_lock = NULL;
@@ -716,7 +717,7 @@ bool priority_compare(const struct list_elem* a, const struct list_elem* b)
 
   j = list_entry (b, struct thread, elem)->priority;
 
-  if ( i >= j ) return true;
+  if ( i > j ) return true;
   
   return false;
 }
