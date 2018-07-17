@@ -489,6 +489,9 @@ init_thread (struct thread *t, const char *name, int priority)
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->wake_at = 0;
+  
+  t->wait_lock = NULL;
+  list_init(&t->donation_list);
   t->magic = THREAD_MAGIC;
   list_push_back (&all_list, &t->allelem);
 }
@@ -667,13 +670,13 @@ thread_preempt_block() //insert thread to some list before call
 {
   ASSERT(!intr_context());
   enum intr_level old_level = intr_disable();
+  
   if (list_empty(&ready_list))
   {
     return;
   }
   struct thread* cur = thread_current();
   struct thread* next = list_entry (list_front(&ready_list), struct thread, elem);
-  
   ASSERT (next->status == THREAD_READY);
   ASSERT (cur->status == THREAD_RUNNING);
   ASSERT (cur != next);
@@ -713,7 +716,7 @@ bool priority_compare(const struct list_elem* a, const struct list_elem* b)
 
   j = list_entry (b, struct thread, elem)->priority;
 
-  if ( i > j ) return true;
+  if ( i >= j ) return true;
   
   return false;
 }

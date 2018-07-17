@@ -66,14 +66,12 @@ sema_down (struct semaphore *sema)
   ASSERT (!intr_context ());
 
   old_level = intr_disable ();
-  
   while (sema->value == 0) 
     {
-      priority_donate();
       list_insert_ordered (&sema->waiters, &thread_current()->elem, (void*) priority_compare, NULL);
       thread_block ();
     }
-  priority_donate();
+  
   sema->value--;
   
   intr_set_level (old_level);
@@ -97,7 +95,6 @@ sema_try_down (struct semaphore *sema)
     {
       sema->value--;
       success = true; 
-      priority_donate();
     }
   else
     success = false;
@@ -118,10 +115,14 @@ sema_up (struct semaphore *sema)
   ASSERT (sema != NULL);
 
   old_level = intr_disable ();
-  if (!list_empty (&sema->waiters)) 
+  if (!list_empty (&sema->waiters))
+  { 
     thread_unblock (list_entry (list_pop_front (&sema->waiters),
                                 struct thread, elem));
+    list_sort(&sema->waiters, (void*)priority_compare, NULL);
+  }
   sema->value++;
+
   thread_preempt_block();
   intr_set_level (old_level);
 }
@@ -184,7 +185,6 @@ lock_init (struct lock *lock)
   ASSERT (lock != NULL);
 
   lock->holder = NULL;
-  list_init(&lock->wait_list);
   sema_init (&lock->semaphore, 1);
 }
 
@@ -202,10 +202,20 @@ lock_acquire (struct lock *lock)
   ASSERT (lock != NULL);
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
+  struct thread* t = thread_current();
+  if (thread_mlfqs == false)
+  {
+    if (lock_try_acquire(lock))
+    {
+      return;
+    }
 
-  thread_current()->lock_holder = lock->holder;
-  
+    t->wait_lock = lock;
+    list_push_back (&lock->holder->donation_list, &t->donation_elem);
+    priority_donate (t);
+  }
   sema_down (&lock->semaphore);
+  t->wait_lock = NULL;
   lock->holder = thread_current ();
 }
 
@@ -222,8 +232,6 @@ lock_try_acquire (struct lock *lock)
 
   ASSERT (lock != NULL);
   ASSERT (!lock_held_by_current_thread (lock));
-
-  thread_current()->lock_holder = lock->holder;
   success = sema_try_down (&lock->semaphore);
   if (success)
   {
@@ -242,9 +250,12 @@ lock_release (struct lock *lock)
 {
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
-
-  priority_restore(thread_current());
-
+  struct thread* t;
+  if(!list_empty(&lock->semaphore.waiters))
+  {
+    t = list_entry(list_front(&lock->semaphore.waiters), struct thread, elem);
+  }
+  priority_restore(thread_current(), lock);
   lock->holder = NULL;
   sema_up (&lock->semaphore);
 }
@@ -350,68 +361,56 @@ cond_broadcast (struct condition *cond, struct lock *lock)
   while (!list_empty (&cond->waiters))
     cond_signal (cond, lock);
 }
-inline void
-_priority_donate(struct thread* holder, struct thread* caller)
-{
-  int tmp = 0;
-  if (caller->ret_thread != NULL)
-  {
-    return;
-  }
-  if(caller->priority > holder->priority)
-  {
-    tmp = holder->priority;
-    holder->priority = caller->priority;
-    caller->priority = tmp;
-    
-    caller->ret_thread = (holder->ret_thread == NULL) ? holder : holder->ret_thread;
-    holder->ret_thread = caller;  
-  }
-}
+
 void 
-priority_donate()
+priority_donate (struct thread* cur)
 {
-  struct thread* caller = thread_current (); 
-  struct thread* holder = caller->lock_holder; 
-  if (holder == NULL) 
-  { 
-    return; // no holder. lock hadn't used 
+  struct thread* holder = cur->wait_lock->holder;
+  struct list_elem* e;
+  if (cur->wait_lock == NULL)
+  {
+    return;
   }
-  return _priority_donate(holder, caller);
-
-
+  if (list_empty(&holder->donation_list))
+  {
+    return;
+  }
+  for (e = list_front(&holder->donation_list); e != list_end(&holder->donation_list);)
+  {
+    struct thread* t = list_entry (e, struct thread, donation_elem);
+    ASSERT(t->wait_lock != NULL);
+    if (t->priority > holder->priority)
+    {
+      holder->priority_prev 
+              = (holder->priority_prev == 0) ? holder->priority : holder->priority_prev;
+      holder->priority = t->priority;
+    }
+    e = list_next(e);
+  }
+  priority_donate(holder);
 }
 
 void
-_priority_restore(struct thread* recp, struct thread* doner)
+priority_restore(struct thread* holder, struct lock* lock)
 {
-  int temp = recp->priority;
-  recp->priority = doner->priority;
-  doner->priority = temp;
-
-  recp->ret_thread = doner->ret_thread;
-  doner->ret_thread = NULL;
-
-  if(recp->ret_thread == recp) // end pattern
+  struct list* wait_list = &holder->donation_list;
+  struct list_elem* e = NULL;
+  if (list_empty(wait_list))
   {
-    recp->ret_thread = NULL; // switched return thread is itself, no more doner. restore is end.
     return;
   }
-  ASSERT(recp->ret_thread != NULL);
-  return _priority_restore(recp, recp->ret_thread);
-} 
-
-void
-priority_restore(struct thread* cur)
-{
-  struct thread* holder = cur;
-  struct thread* ret = holder->ret_thread;
-  if (holder->ret_thread == NULL)
+  for (e = list_front(wait_list); e != list_end(wait_list);)
   {
-    ASSERT(holder->lock_holder == NULL);
-    return; // nothing to do. include NULL doner case
+    struct thread* t = list_entry (e, struct thread, donation_elem);
+    if(t->wait_lock == lock)
+    {
+      e = list_remove(e);
+    }
+    else
+    {
+      e = list_next(e);
+    }
   }
-  _priority_restore (holder, ret);
-  holder->lock_holder = NULL;
-  ASSERT (holder->ret_thread == NULL);
+  holder->priority = holder->priority_prev == 0 ? holder->priority : holder->priority_prev;
+  holder->priority_prev = 0;
 }
