@@ -356,9 +356,21 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority) 
 {
+  ASSERT(!thread_mlfqs);
   struct thread* cur = thread_current ();
   cur->priority = new_priority;//setting end
+  cur->priority_prev = -1;
   
+  if (!list_empty(&cur->donation_list))
+  {
+    struct list_elem* e;
+    for (e = list_front(&cur->donation_list); e != list_end(&cur->donation_list);)
+    {
+      struct thread* t = list_entry(e, struct thread, donation_elem);
+      priority_donate(t);
+      e = list_next(e);
+    }
+  }
   if(list_empty(&ready_list))
   {
     return; // you are the only one 
@@ -384,8 +396,7 @@ thread_set_nice (int nice UNUSED)
 int
 thread_get_nice (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  return thread_current()->nice;
 }
 
 /* Returns 100 times the system load average. */
@@ -487,8 +498,11 @@ init_thread (struct thread *t, const char *name, int priority)
   t->status = THREAD_BLOCKED;
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
-  t->priority = priority;
-  t->priority_prev = -1;
+  if (!thread_mlfqs)
+  {
+    t->priority = priority;
+    t->priority_prev = -1;
+  }
   t->wake_at = 0;
   
   t->wait_lock = NULL;
@@ -721,3 +735,4 @@ bool priority_compare(const struct list_elem* a, const struct list_elem* b)
   
   return false;
 }
+
