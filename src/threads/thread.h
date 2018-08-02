@@ -4,7 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
-
+#include "threads/fixed-point.h"
 /* States in a thread's life cycle. */
 enum thread_status
   {
@@ -87,14 +87,19 @@ struct thread
     enum thread_status status;          /* Thread state. */
     char name[16];                      /* Name (for debugging purposes). */
     uint8_t *stack;                     /* Saved stack pointer. */
-    volatile int priority;                       /* Priority. */
-    int priority_prev;
+    int priority;                       /* Priority. */
+    
     struct list_elem allelem;           /* List element for all threads list. */
     /*sleep components*/
     int64_t wake_at;
     /**/
-    struct lock* wait_lock;
+    int recent_cpu;
+    int nice;
 
+    
+    struct lock* wait_lock;
+    /* Can be dynamically allocated. donation element.*/
+    int priority_prev;
     struct list donation_list;
     struct list_elem donation_elem;
     
@@ -149,13 +154,18 @@ int thread_get_load_avg (void);
 
 void thread_sleep(int64_t);
 void thread_wake(void);
-bool time_compare(const struct list_elem*, const struct list_elem*);
 
 /*end sleep*/
 /*priority*/
 void thread_preempt_block(void);
 /*compare*/
 bool time_compare(const struct list_elem*, const struct list_elem*); // ascending
-bool priority_compare(const struct list_elem*, const struct list_elem* ); // descending 
+bool priority_compare(const struct list_elem*, const struct list_elem* ); // descending
+
+void thread_calc_load_avg (void); 
+void thread_calc_priority(struct thread*);
+void thread_calc_recent_cpu (struct thread*);
+void thread_recalc_cpu(void);
+void thread_inc_recent(void);
 /*end compare*/
 #endif /* threads/thread.h */

@@ -18,9 +18,35 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 
+
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
 
+struct line_input
+{
+  int argc, length;
+
+  char* argv;
+};
+
+
+static void
+parse_line(struct line_input* input)
+{
+  input->argc = 0;
+  char* cmd = input->argv;
+  char cur = *cmd;
+
+  for(;*input->argv != '\0'; cur = *++input->argv)
+  {
+    if(cur == ' ')
+    {
+      *input->argv = '\0';
+      input->argc++;  
+    }
+  }
+  input->argv = cmd;
+}
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
    before process_execute() returns.  Returns the new process's
@@ -28,29 +54,65 @@ static bool load (const char *cmdline, void (**eip) (void), void **esp);
 tid_t
 process_execute (const char *file_name) 
 {
-  char *fn_copy;
+  struct line_input* input;
   tid_t tid;
-
+  
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
-  fn_copy = palloc_get_page (0);
-  if (fn_copy == NULL)
+  input = palloc_get_page (0);
+  if (input == NULL)
     return TID_ERROR;
-  strlcpy (fn_copy, file_name, PGSIZE);
+  strlcpy (input->argv, file_name, PGSIZE - sizeof(struct line_input));
 
+  parse_line(input);
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
+  tid = thread_create (input->argv, PRI_DEFAULT, start_process, input);
   if (tid == TID_ERROR)
-    palloc_free_page (fn_copy); 
+    palloc_free_page (input); 
   return tid;
 }
 
+static void 
+push_arguments(struct line_input* input, void** esp)
+{
+  //esp is the location where cpu just before run.
+  char* esp_prev;
+  *esp = *esp - (input->length + 1);
+  memcpy (*esp + 1, input->argv, input->length); // argument copy done;    argv[argc][...] ... argv[0][...];                                                                                          
+
+  *((int*)(*esp)) = 0; // allign uint8_t
+
+  esp_prev = (char*) *esp + 1;// argv[0][..];
+
+  *esp = *esp - (input->argc + 1); // argv[0] pos
+
+  *(char*)(*esp) = esp_prev; // argv[0] assign
+
+  *(char*)(*esp + input->argc) = NULL; // argv[argc + 1];
+
+  int count = 0;
+  for (int i = 0; i < input->length; i++)
+  {
+    if (*(esp_prev + i) == '\0')
+    {
+      count++; 
+      *(char*)(*esp + count) = (esp_prev + i); // argv[pos] assign
+      ASSERT (count <= input->argc);
+    }
+  }
+  *esp = *esp - 1;
+  *(char**)(*esp) = esp_prev;
+  *esp = *esp - 1;
+  *(int*)(*esp) = input->argc;
+  *esp = *esp - 1;
+  *(char*)(*esp) = NULL;
+}
 /* A thread function that loads a user process and starts it
    running. */
 static void
 start_process (void *file_name_)
 {
-  char *file_name = file_name_;
+  struct line_input *input = file_name_;
   struct intr_frame if_;
   bool success;
 
@@ -59,13 +121,17 @@ start_process (void *file_name_)
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
-  success = load (file_name, &if_.eip, &if_.esp);
+  success = load (input->argv, &if_.eip, &if_.esp);
 
   /* If load failed, quit. */
-  palloc_free_page (file_name);
-  if (!success) 
+  if (!success)
+  {
+    palloc_free_page (input);
     thread_exit ();
+  }
+  push_arguments (input, &if_.esp);
 
+  palloc_free_page (input);
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
      threads/intr-stubs.S).  Because intr_exit takes all of its

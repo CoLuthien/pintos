@@ -68,7 +68,9 @@ sema_down (struct semaphore *sema)
   old_level = intr_disable ();
   while (sema->value == 0) 
     {
-      list_insert_ordered (&sema->waiters, &thread_current()->elem, (void*) priority_compare, NULL);
+      list_insert_ordered (&sema->waiters, 
+              &thread_current()->elem, (void*) priority_compare, NULL);
+      
       thread_block ();
     }
   sema->value--;
@@ -116,14 +118,16 @@ sema_up (struct semaphore *sema)
   old_level = intr_disable ();
   if (!list_empty (&sema->waiters))
   { 
-    list_sort(&sema->waiters, (void*)priority_compare, NULL);
+    if (!thread_mlfqs)
+      list_sort(&sema->waiters, (void*)priority_compare, NULL);
+    
     thread_unblock (list_entry (list_pop_front (&sema->waiters),
                                 struct thread, elem));
   }
   sema->value++;
-
-  thread_preempt_block();
   intr_set_level (old_level);
+  thread_preempt_block();
+  
 }
 
 static void sema_test_helper (void *sema_);
@@ -202,17 +206,17 @@ lock_acquire (struct lock *lock)
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
   struct thread* t = thread_current();
-  if (thread_mlfqs == false)
+  if (!thread_mlfqs)
   {
     if (lock_try_acquire(lock))
     {
       return;
     }
-
     t->wait_lock = lock;
     list_push_back (&lock->holder->donation_list, &t->donation_elem);
     priority_donate (t);
   }
+
   sema_down (&lock->semaphore);
   t->wait_lock = NULL;
   lock->holder = thread_current ();
@@ -249,11 +253,14 @@ lock_release (struct lock *lock)
 {
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
-  struct thread* t;
+  ASSERT (!intr_context());
 
-  priority_restore(thread_current(), lock);
+  if (!thread_mlfqs)
+    priority_restore(thread_current(), lock);
+  
   lock->holder = NULL;
   sema_up (&lock->semaphore);
+  
 }
 
 /* Returns true if the current thread holds LOCK, false
@@ -369,6 +376,12 @@ priority_donate (struct thread* cur)
   }
   if (list_empty(&holder->donation_list))
   {
+    if (cur->priority > holder->priority)
+    {
+      holder->priority_prev 
+              = (holder->priority_prev == -1) ? holder->priority : holder->priority_prev;
+      holder->priority = cur->priority;
+    }
     return;
   }
   for (e = list_front(&holder->donation_list); e != list_end(&holder->donation_list);)
@@ -384,6 +397,7 @@ priority_donate (struct thread* cur)
     }
     e = list_next(e);
   }
+  
   
   return priority_donate(holder);
 }
