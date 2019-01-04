@@ -394,7 +394,6 @@ priority_donate (struct thread* cur)
       holder->priority_prev 
               = (holder->priority_prev == -1) ? holder->priority : holder->priority_prev;
       holder->priority = t->priority;
-      //printf("%s, %d, %d\n", holder->name, holder->priority, holder->priority_prev);
     }
     e = list_next(e);
   }
@@ -418,15 +417,15 @@ priority_restore(struct thread* holder, struct lock* lock)
     if(t->wait_lock == lock) // if this lock has any waiter then restore its priority
     {
       e = list_remove(e); // this thread doesn't need to wait us
-      holder->priority = holder->priority_prev == -1 ? holder->priority : holder->priority_prev;
+      holder->priority
+               = (holder->priority_prev == -1) ? holder->priority : holder->priority_prev;
       holder->priority_prev = -1;
+      t->wait_lock = NULL;
     }
     else
     {
       e = list_next(e); // this one has to wait us 
       priority_donate(t);
     }
-  }
-  
-  
+  } 
 }
