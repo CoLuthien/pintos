@@ -21,117 +21,143 @@
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
-
-struct line_input
-{
-  int argc, length;
-
-  char* argv;
-};
-
-
-static void
-parse_line(struct line_input* input)
-{
-  input->argc = 0;
-  char* cmd = input->argv;
-  char cur = *cmd;
-
-  for(;*input->argv != '\0'; cur = *++input->argv)
-  {
-    if(cur == ' ')
-    {
-      *input->argv = '\0';
-      input->argc++;  
-    }
-  }
-  input->argv = cmd;
-}
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
    before process_execute() returns.  Returns the new process's
    thread id, or TID_ERROR if the thread cannot be created. */
-tid_t
-process_execute (const char *file_name) 
-{
-  struct line_input* input;
-  tid_t tid;
-  
-  /* Make a copy of FILE_NAME.
-     Otherwise there's a race between the caller and load(). */
-  input = palloc_get_page (0);
-  if (input == NULL)
-    return TID_ERROR;
-  strlcpy (input->argv, file_name, PGSIZE - sizeof(struct line_input));
 
-  parse_line(input);
-  /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (input->argv, PRI_DEFAULT, start_process, input);
-  if (tid == TID_ERROR)
-    palloc_free_page (input); 
-  return tid;
+struct cmd_line
+{
+  int argc, length;
+  char* line_copy;
+  char** argv;
+};
+static void 
+parse_args(struct cmd_line* cmd)
+{
+  cmd->argc = 1;
+  char* line = cmd->line_copy;
+  int pos = 0;
+  *cmd->argv = cmd->line_copy;
+  
+  for(char cur = *cmd->line_copy; cur != '\0'; cur = *(cmd->line_copy + pos))
+  {
+    if (cur == ' ')
+    {
+      cmd->line_copy[pos] = '\0';
+      cmd->argv[cmd->argc] = (line + pos + 1);
+      cmd->argc += 1; 
+    }
+    pos += 1;
+  }
+
+  cmd->length = pos;
+  cmd->argv[cmd->argc] = NULL;
 }
 
 static void 
-push_arguments(struct line_input* input, void** esp)
+init_cmdline(struct cmd_line* cmd)
 {
-  //esp is the location where cpu just before run.
-  char* esp_prev;
-  *esp = *esp - (input->length + 1);
-  memcpy (*esp + 1, input->argv, input->length); // argument copy done;    argv[argc][...] ... argv[0][...];                                                                                          
-
-  *((int*)(*esp)) = 0; // allign uint8_t
-
-  esp_prev = (char*) *esp + 1;// argv[0][..];
-
-  *esp = *esp - (input->argc + 1); // argv[0] pos
-
-  *(char*)(*esp) = esp_prev; // argv[0] assign
-
-  *(char*)(*esp + input->argc) = NULL; // argv[argc + 1];
-
-  int count = 0;
-  for (int i = 0; i < input->length; i++)
-  {
-    if (*(esp_prev + i) == '\0')
-    {
-      count++; 
-      *(char*)(*esp + count) = (esp_prev + i); // argv[pos] assign
-      ASSERT (count <= input->argc);
-    }
-  }
-  *esp = *esp - 1;
-  *(char**)(*esp) = esp_prev;
-  *esp = *esp - 1;
-  *(int*)(*esp) = input->argc;
-  *esp = *esp - 1;
-  *(char*)(*esp) = NULL;
+  ASSERT (cmd == NULL);
+  cmd = palloc_get_page (0);
+  cmd->line_copy = palloc_get_page(0);
+  cmd->argv = palloc_get_page (0); 
 }
+static void
+delete_cmdline(struct cmd_line* cmd)
+{
+  palloc_free_page (cmd->argv);
+  palloc_free_page (cmd->line_copy);
+  palloc_free_page (cmd);
+}
+tid_t
+process_execute (const char *file_name) 
+{
+  struct cmd_line* cmd = NULL;
+  tid_t tid;
+  /* Make a copy of FILE_NAME.
+     Otherwise there's a race between the caller and load(). */
+  cmd = palloc_get_page (0);
+  cmd->line_copy = palloc_get_page(0);
+  cmd->argv = palloc_get_page (0);
+
+  if (cmd == NULL)
+    return TID_ERROR;
+  strlcpy (cmd->line_copy, file_name, PGSIZE);
+  parse_args (cmd);
+  /* Create a new thread to execute FILE_NAME. */
+
+
+  tid = thread_create (cmd->argv[0], PRI_DEFAULT, start_process, cmd);
+
+  if (tid == TID_ERROR)
+    delete_cmdline (cmd); 
+  return tid;
+}
+
 /* A thread function that loads a user process and starts it
    running. */
+static void 
+args_push(struct cmd_line* cmd, void** esp)
+{
+  int i = 0;
+  int j = 0;
+  char* argv[256]; // command line word should less then 256;
+  *esp = *esp - (cmd->length); // start args;
+  argv[j] = (char*)(*esp);
+
+  while (cmd->length > i)
+  {
+    *(char*)(*esp + i) = *(cmd->line_copy + i);
+
+    if(*(cmd->line_copy + i) == '\0')
+    {
+      j++; // j start from 1;
+      argv[j] = (char*)(*esp + i);
+    }
+    i++;
+  }
+
+  *esp -= 1;
+  *(int*)*esp = (uint8_t) 0;
+
+  *esp = *esp - (cmd->argc + 1);
+  *(char***)(esp) = *esp + 1;
+
+  i = 0;
+  while (argv[i] != NULL)
+  {
+    *(char**)(*esp + i) = argv[i];
+    i++;
+
+  }
+  *esp = *esp - (cmd->argc + 2);
+  *(int*)(*esp) = 0;
+}
 static void
 start_process (void *file_name_)
 {
-  struct line_input *input = file_name_;
+  struct cmd_line *input = file_name_;
   struct intr_frame if_;
   bool success;
 
+  
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
+
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
-  success = load (input->argv, &if_.eip, &if_.esp);
-
+  success = load (input->argv[0], &if_.eip, &if_.esp);
+  args_push (input, &if_.esp);
   /* If load failed, quit. */
   if (!success)
   {
-    palloc_free_page (input);
+    delete_cmdline (input);
     thread_exit ();
   }
-  push_arguments (input, &if_.esp);
-
-  palloc_free_page (input);
+  
+  delete_cmdline (input);
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
      threads/intr-stubs.S).  Because intr_exit takes all of its
@@ -154,6 +180,7 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
+  while(1);
   return -1;
 }
 
@@ -280,13 +307,12 @@ load (const char *file_name, void (**eip) (void), void **esp)
   off_t file_ofs;
   bool success = false;
   int i;
-
+  
   /* Allocate and activate page directory. */
   t->pagedir = pagedir_create ();
   if (t->pagedir == NULL) 
     goto done;
   process_activate ();
-
   /* Open executable file. */
   file = filesys_open (file_name);
   if (file == NULL) 

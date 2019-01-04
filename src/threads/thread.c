@@ -702,7 +702,6 @@ thread_wake(void) //execute at intrrupt routine
 void 
 thread_preempt_block() //insert thread to some list before call
 {
-  ASSERT(!intr_context());
   enum intr_level old_level = intr_disable();
   
   if (list_empty(&ready_list))
@@ -715,7 +714,7 @@ thread_preempt_block() //insert thread to some list before call
   ASSERT (cur != next);
   ASSERT (next->status == THREAD_READY);
   ASSERT (cur->status == THREAD_RUNNING); 
-  if (cur->priority >= next->priority)
+  if (cur->priority > next->priority)
   {
     intr_set_level(old_level);
     return;

@@ -22,3 +22,8 @@ src/examples/lib/debug.o
 src/examples/lib/ustar.o
 src/examples/lib/user/entry.o
 src/examples/lib/user/console.o
+src/userprog/echo
+src/userprog/filesys.dsk
+src/userprog/ls
+src/userprog/filesys.dsk
+src/userprog/echo
